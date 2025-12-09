@@ -51,3 +51,42 @@ export enum RepeatMode {
   ALL = 'ALL',
   ONE = 'ONE'
 }
+
+export enum GestureType {
+  SWIPE = 'SWIPE',
+  PINCH = 'PINCH',
+  CIRCLE = 'CIRCLE'
+}
+
+export enum GestureAction {
+  SEEK = 'SEEK',
+  VOLUME = 'VOLUME',
+  ZOOM = 'ZOOM',
+  NONE = 'NONE'
+}
+
+export interface GestureSettings {
+  [GestureType.SWIPE]: GestureAction;
+  [GestureType.PINCH]: GestureAction;
+  [GestureType.CIRCLE]: GestureAction;
+}
+
+// Equalizer Types
+export type PresetName = 'Flat' | 'Bass Boost' | 'Vocal' | 'Treble' | 'Custom';
+
+export interface EqSettings {
+  preset: PresetName;
+  gains: {
+    60: number;   // Bass
+    250: number;  // Low-Mids
+    1000: number; // Mids
+    4000: number; // High-Mids
+    16000: number;// Treble
+  };
+}
+
+export interface SleepTimer {
+  active: boolean;
+  endTime: number | null; // Timestamp
+  fadeDuration: number; // ms
+}

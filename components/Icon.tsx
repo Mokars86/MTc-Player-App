@@ -5,7 +5,7 @@ import {
   Heart, ListMusic, Home, Library, Settings, Mic2, 
   Volume2, VolumeX, Maximize2, Minimize2, Search,
   Wand2, MessageSquare, PlusCircle, Music, Activity,
-  Sun, Moon
+  Sun, Moon, Sliders, Timer
 } from 'lucide-react';
 
 export const Icons = {
@@ -13,7 +13,7 @@ export const Icons = {
   Heart, ListMusic, Home, Library, Settings, Mic2,
   Volume2, VolumeX, Maximize2, Minimize2, Search,
   Wand2, MessageSquare, PlusCircle, Music, Activity,
-  Sun, Moon
+  Sun, Moon, Sliders, Timer
 };
 
 export type IconName = keyof typeof Icons;
