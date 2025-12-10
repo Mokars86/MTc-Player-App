@@ -146,7 +146,11 @@ const AudioEngine: React.FC<AudioEngineProps> = ({
         ctx.fillStyle = gradient;
         
         ctx.beginPath();
-        ctx.roundRect(x, height - barHeight, barWidth, barHeight, 5);
+        if (ctx.roundRect) {
+            ctx.roundRect(x, height - barHeight, barWidth, barHeight, 5);
+        } else {
+            ctx.rect(x, height - barHeight, barWidth, barHeight);
+        }
         ctx.fill();
 
         x += barWidth + 2;

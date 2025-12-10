@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { AppView, MediaItem, MediaType, PlayerState, Theme, RepeatMode, GestureType, GestureAction, GestureSettings, EqSettings, SleepTimer } from './types';
+import { AppView, MediaItem, MediaType, PlayerState, Theme, RepeatMode, GestureType, GestureAction, GestureSettings, EqSettings, SleepTimer, Playlist } from './types';
 import { DEMO_MEDIA } from './constants';
 import { Icons } from './components/Icon';
 import HomeView from './views/HomeView';
@@ -15,10 +15,12 @@ const SplashScreen = ({ onComplete }: { onComplete: () => void }) => {
 
   return (
     <div className="fixed inset-0 z-[100] bg-app-bg flex flex-col items-center justify-center animate-fade-in">
-      <div className="w-24 h-24 bg-brand-accent rounded-2xl rotate-45 flex items-center justify-center shadow-[0_0_50px_rgba(20,184,166,0.4)] mb-8 animate-pulse-slow">
-        <div className="w-16 h-16 border-4 border-white rounded-xl -rotate-45 flex items-center justify-center">
-            <Icons.Play className="w-8 h-8 text-white fill-white ml-1" />
-        </div>
+      <div className="relative w-24 h-24 mb-8">
+          <div className="absolute inset-0 bg-brand-DEFAULT rounded-2xl rotate-6 opacity-20 animate-pulse"></div>
+          <div className="absolute inset-0 bg-brand-dark rounded-2xl -rotate-6 opacity-20 animate-pulse delay-75"></div>
+          <div className="relative bg-app-surface w-full h-full rounded-2xl border border-brand-accent/20 flex items-center justify-center shadow-2xl">
+                <Icons.Play className="w-12 h-12 text-brand-accent fill-brand-accent" />
+          </div>
       </div>
       <h1 className="text-4xl font-bold text-app-text tracking-wider mb-2">MTc Player</h1>
       <p className="text-brand-light text-sm tracking-widest uppercase opacity-80">Premium Media Experience</p>
@@ -59,8 +61,18 @@ const App = () => {
     const saved = localStorage.getItem('mtc_favorites');
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
-  const [libraryTab, setLibraryTab] = useState<'ALL' | 'FAVORITES' | 'LOCAL'>('ALL');
+  const [libraryTab, setLibraryTab] = useState<'ALL' | 'FAVORITES' | 'PLAYLISTS' | 'ALBUMS' | 'ARTISTS' | 'LOCAL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Playlist & Collection State
+  const [playlists, setPlaylists] = useState<Playlist[]>(() => {
+    const saved = localStorage.getItem('mtc_playlists');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  // Replaces activePlaylistId to generic collection selection
+  const [selectedCollection, setSelectedCollection] = useState<{ type: 'PLAYLIST' | 'ALBUM' | 'ARTIST', id: string, title: string } | null>(null);
+  const [trackToAction, setTrackToAction] = useState<MediaItem | null>(null); // Track selected for adding to playlist
 
   // Gesture Settings
   const [gestureSettings, setGestureSettings] = useState<GestureSettings>(() => {
@@ -85,6 +97,10 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem('mtc_gestures', JSON.stringify(gestureSettings));
   }, [gestureSettings]);
+
+  useEffect(() => {
+    localStorage.setItem('mtc_playlists', JSON.stringify(playlists));
+  }, [playlists]);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -138,16 +154,6 @@ const App = () => {
               if (audioRef.current) audioRef.current.pause();
               setSleepTimer(prev => ({ ...prev, active: false, endTime: null }));
               clearInterval(interval);
-          } else if (now >= sleepTimer.endTime! - sleepTimer.fadeDuration && isPlaying && audioRef.current) {
-              // Simple linear fade out
-              const remaining = sleepTimer.endTime! - now;
-              const ratio = remaining / sleepTimer.fadeDuration;
-              // Avoid over-fading if user sets volume low, just scale current logic roughly
-              // Actually better to just set volume proportional to max volume (1.0 for simplicity here)
-              // But we don't want to override user volume permanently. 
-              // For "Production", we'd need a separate GainNode for fade.
-              // For now, we will just not implement complex fade to preserve user's volume setting state.
-              // Just hard pause at end.
           }
       }, 1000);
 
@@ -168,15 +174,64 @@ const App = () => {
 
   const allMedia = useMemo(() => [...localLibrary, ...DEMO_MEDIA], [localLibrary]);
 
+  // Grouping Logic
+  const albums = useMemo(() => {
+      const map = new Map<string, MediaItem[]>();
+      allMedia.forEach(m => {
+          const albumName = m.album || 'Unknown Album';
+          if (!map.has(albumName)) map.set(albumName, []);
+          map.get(albumName)!.push(m);
+      });
+      return map;
+  }, [allMedia]);
+
+  const artists = useMemo(() => {
+      const map = new Map<string, MediaItem[]>();
+      allMedia.forEach(m => {
+          const artistName = m.artist || 'Unknown Artist';
+          if (!map.has(artistName)) map.set(artistName, []);
+          map.get(artistName)!.push(m);
+      });
+      return map;
+  }, [allMedia]);
+
   const filteredMedia = useMemo(() => {
     let media = allMedia;
-    if (libraryTab === 'FAVORITES') {
-      media = media.filter(m => favorites.has(m.id));
-    } else if (libraryTab === 'LOCAL') {
-      media = localLibrary;
+    
+    // Detailed Collection View Filtering
+    if (selectedCollection) {
+        if (selectedCollection.type === 'PLAYLIST') {
+             const playlist = playlists.find(p => p.id === selectedCollection.id);
+             if (playlist) {
+                 media = playlist.tracks.map(id => allMedia.find(m => m.id === id)).filter(Boolean) as MediaItem[];
+             } else {
+                 media = [];
+             }
+        } else if (selectedCollection.type === 'ALBUM') {
+             media = albums.get(selectedCollection.title) || [];
+        } else if (selectedCollection.type === 'ARTIST') {
+             media = artists.get(selectedCollection.title) || [];
+        }
+    } else {
+        // Standard library filtering
+        if (libraryTab === 'FAVORITES') {
+          media = media.filter(m => favorites.has(m.id));
+        } else if (libraryTab === 'LOCAL') {
+          media = localLibrary;
+        } else if (libraryTab === 'PLAYLISTS' || libraryTab === 'ALBUMS' || libraryTab === 'ARTISTS') {
+           // These tabs display grids, not list of tracks directly
+           media = [];
+        }
     }
+
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
+      // If we are in grid views, we might handle search there, but usually search filters tracks
+      // For simplicity, if searching, we show matching tracks globally unless in a collection
+      if (!selectedCollection && (libraryTab === 'PLAYLISTS' || libraryTab === 'ALBUMS' || libraryTab === 'ARTISTS')) {
+          // Could implement specific search logic for these, but let's fall back to track search for now
+      }
+      
       media = media.filter(m => 
         m.title.toLowerCase().includes(query) || 
         m.artist.toLowerCase().includes(query) ||
@@ -184,7 +239,7 @@ const App = () => {
       );
     }
     return media;
-  }, [allMedia, localLibrary, libraryTab, favorites, searchQuery]);
+  }, [allMedia, localLibrary, libraryTab, favorites, searchQuery, selectedCollection, playlists, albums, artists]);
 
   const playTrack = useCallback(async (track: MediaItem) => {
     if (!audioRef.current) return;
@@ -329,6 +384,19 @@ const App = () => {
     });
   };
 
+  const removeFromLibrary = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (confirm("Remove this track from your local library?")) {
+        setLocalLibrary(prev => prev.filter(item => item.id !== id));
+    }
+  };
+
+  const clearLocalLibrary = () => {
+      if (confirm("Clear all local tracks? This action cannot be undone.")) {
+          setLocalLibrary([]);
+      }
+  };
+
   const toggleShuffle = () => setShuffleOn(prev => !prev);
   
   const toggleRepeat = () => {
@@ -339,27 +407,86 @@ const App = () => {
       });
   };
 
+  // --- PLAYLIST LOGIC ---
+  const createPlaylist = () => {
+      const name = prompt("Enter playlist name:");
+      if (!name) return;
+      const newPlaylist: Playlist = {
+          id: `pl-${Date.now()}`,
+          name,
+          tracks: [],
+          createdAt: Date.now()
+      };
+      setPlaylists(prev => [newPlaylist, ...prev]);
+  };
+
+  const deletePlaylist = (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (confirm("Delete this playlist?")) {
+          setPlaylists(prev => prev.filter(p => p.id !== id));
+          if (selectedCollection?.id === id) setSelectedCollection(null);
+      }
+  };
+
+  const addToPlaylist = (playlistId: string, trackId: string) => {
+      setPlaylists(prev => prev.map(p => {
+          if (p.id === playlistId && !p.tracks.includes(trackId)) {
+              return { ...p, tracks: [...p.tracks, trackId] };
+          }
+          return p;
+      }));
+      setTrackToAction(null);
+  };
+
+  const removeFromPlaylist = (playlistId: string, trackId: string, e?: React.MouseEvent) => {
+      if (e) e.stopPropagation();
+      setPlaylists(prev => prev.map(p => {
+          if (p.id === playlistId) {
+              return { ...p, tracks: p.tracks.filter(id => id !== trackId) };
+          }
+          return p;
+      }));
+  };
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
 
-    const isVideo = file.type.startsWith('video');
-    const objectUrl = URL.createObjectURL(file);
-    const newTrack: MediaItem = {
-        id: `local-${Date.now()}`,
-        title: file.name.replace(/\.[^/.]+$/, ""), 
-        artist: 'Local Upload',
-        coverUrl: 'https://picsum.photos/400/400?grayscale', 
-        mediaUrl: objectUrl,
-        type: isVideo ? MediaType.VIDEO : MediaType.MUSIC,
-        duration: 0, 
-        moods: ['Local']
-    };
+    const newTracks: MediaItem[] = Array.from(files).map((file: File, index) => {
+        const isVideo = file.type.startsWith('video');
+        const objectUrl = URL.createObjectURL(file);
+        
+        let title = file.name.replace(/\.[^/.]+$/, ""); 
+        let artist = 'Local Artist';
 
-    setLocalLibrary(prev => [newTrack, ...prev]);
+        if (title.includes('-')) {
+            const parts = title.split('-');
+            if (parts.length >= 2) {
+                artist = parts[0].trim();
+                title = parts.slice(1).join('-').trim();
+            }
+        }
+
+        return {
+            id: `local-${Date.now()}-${index}`,
+            title: title,
+            artist: artist,
+            album: 'Local Uploads',
+            coverUrl: isVideo ? '' : 'https://picsum.photos/400/400?grayscale', 
+            mediaUrl: objectUrl,
+            type: isVideo ? MediaType.VIDEO : MediaType.MUSIC,
+            duration: 0, 
+            moods: ['Local']
+        };
+    });
+
+    setLocalLibrary(prev => [...newTracks, ...prev]);
     setLibraryTab('LOCAL');
-    playTrack(newTrack);
-    setCurrentView(AppView.PLAYER);
+    setCurrentView(AppView.LIBRARY);
+    
+    if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+    }
   };
 
   const triggerFileUpload = () => {
@@ -405,7 +532,31 @@ const App = () => {
   return (
     <div className={`${theme === 'light' ? 'light-theme' : ''} h-full w-full`}>
         <div className="flex flex-col h-screen bg-app-bg text-app-text overflow-hidden relative font-sans selection:bg-brand-accent selection:text-white transition-colors duration-300">
-        <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="audio/*,video/*" className="hidden" />
+        <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="audio/*,video/*" multiple className="hidden" />
+        
+        {/* ADD TO PLAYLIST MODAL */}
+        {trackToAction && (
+            <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setTrackToAction(null)}>
+                <div className="bg-app-card border border-app-border rounded-xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                    <div className="p-4 border-b border-app-border flex justify-between items-center bg-app-surface">
+                        <h3 className="font-bold text-app-text">Add to Playlist</h3>
+                        <button onClick={() => setTrackToAction(null)}><Icons.X className="w-5 h-5 text-app-subtext hover:text-app-text" /></button>
+                    </div>
+                    <div className="max-h-[60vh] overflow-y-auto">
+                        <button onClick={() => { createPlaylist(); }} className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-app-bg text-brand-accent font-medium border-b border-app-border/50">
+                            <Icons.FolderPlus className="w-5 h-5" /> Create New Playlist
+                        </button>
+                        {playlists.map(p => (
+                            <button key={p.id} onClick={() => addToPlaylist(p.id, trackToAction.id)} className="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-app-bg text-app-text">
+                                <span className="truncate">{p.name}</span>
+                                <span className="text-xs text-app-subtext">{p.tracks.length} tracks</span>
+                            </button>
+                        ))}
+                        {playlists.length === 0 && <div className="p-4 text-center text-sm text-app-subtext">No playlists yet.</div>}
+                    </div>
+                </div>
+            </div>
+        )}
 
         <main className="flex-1 overflow-y-auto pb-20 scroll-smooth">
             {currentView === AppView.HOME && (
@@ -413,71 +564,193 @@ const App = () => {
             )}
             {currentView === AppView.LIBRARY && (
                 <div className="p-6 animate-slide-up min-h-full">
+                    {/* Library Header */}
                     <div className="flex justify-between items-center mb-6">
-                        <h1 className="text-3xl font-bold text-app-text">Library</h1>
-                        <button onClick={triggerFileUpload} className="flex items-center gap-2 bg-brand-dark hover:bg-brand-DEFAULT text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg">
-                            <Icons.PlusCircle className="w-5 h-5" /><span className="hidden sm:inline">Import</span>
-                        </button>
+                        <div className="flex items-center gap-2">
+                             {selectedCollection ? (
+                                 <button onClick={() => setSelectedCollection(null)} className="p-1 hover:bg-app-surface rounded-full"><Icons.SkipBack className="w-6 h-6 rotate-180" /></button>
+                             ) : null}
+                             <h1 className="text-3xl font-bold text-app-text">{selectedCollection ? selectedCollection.title : 'Library'}</h1>
+                        </div>
+                        <div className="flex gap-2">
+                             {libraryTab === 'LOCAL' && localLibrary.length > 0 && !selectedCollection && (
+                                <button onClick={clearLocalLibrary} className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-2 rounded-lg transition-colors border border-red-500/20">
+                                    <Icons.Trash2 className="w-5 h-5" />
+                                    <span className="hidden sm:inline text-sm font-bold">Clear All</span>
+                                </button>
+                             )}
+                             {!selectedCollection && (
+                                 <button onClick={triggerFileUpload} className="flex items-center gap-2 bg-brand-dark hover:bg-brand-DEFAULT text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg">
+                                     <Icons.PlusCircle className="w-5 h-5" /><span className="hidden sm:inline">Import</span>
+                                 </button>
+                             )}
+                        </div>
                     </div>
 
-                    <div className="relative mb-6">
-                        <Icons.Search className="absolute left-4 top-3.5 w-5 h-5 text-app-subtext" />
-                        <input type="text" placeholder="Search tracks, artists, moods..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-app-surface border border-app-border rounded-xl py-3 pl-12 pr-4 text-app-text placeholder-app-subtext focus:outline-none focus:ring-2 focus:ring-brand-accent transition-all shadow-sm" />
-                    </div>
+                    {!selectedCollection && (
+                        <>
+                            <div className="relative mb-6">
+                                <Icons.Search className="absolute left-4 top-3.5 w-5 h-5 text-app-subtext" />
+                                <input type="text" placeholder="Search tracks, artists, moods..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-app-surface border border-app-border rounded-xl py-3 pl-12 pr-4 text-app-text placeholder-app-subtext focus:outline-none focus:ring-2 focus:ring-brand-accent transition-all shadow-sm" />
+                            </div>
 
-                    <div className="flex gap-2 mb-6 overflow-x-auto hide-scrollbar">
-                        {(['ALL', 'FAVORITES', 'LOCAL'] as const).map(tab => (
-                            <button key={tab} onClick={() => setLibraryTab(tab)} className={`px-4 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap ${libraryTab === tab ? 'bg-brand-accent text-white shadow-md' : 'bg-app-surface text-app-subtext hover:bg-app-card hover:text-app-text border border-app-border'}`}>
-                                {tab === 'ALL' ? 'All Tracks' : tab === 'FAVORITES' ? 'Favorites' : 'Local Files'}
-                            </button>
-                        ))}
-                    </div>
-
-                    <div className="space-y-1">
-                        {filteredMedia.length > 0 ? (
-                             <div className="grid gap-3">
-                                {filteredMedia.map(media => (
-                                    <div key={media.id} onClick={() => playTrack(media)} className={`group flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all border border-transparent ${currentTrack?.id === media.id ? 'bg-brand-accent/10 border-brand-accent/20' : 'bg-app-surface hover:bg-app-card hover:shadow-md border-app-border'}`}>
-                                        <div className="relative w-12 h-12 flex-shrink-0">
-                                            {media.type === MediaType.VIDEO ? (
-                                                <div className="w-full h-full rounded-lg bg-black/80 flex items-center justify-center text-white overflow-hidden">
-                                                    {media.coverUrl ? (
-                                                        <img src={media.coverUrl} className="w-full h-full object-cover opacity-60" />
-                                                    ) : ( <Icons.Maximize2 className="w-5 h-5 relative z-10" /> )}
-                                                    <div className="absolute inset-0 flex items-center justify-center">
-                                                        <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm"><Icons.Play className="w-3 h-3 fill-white text-white ml-0.5" /></div>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <div className="relative w-full h-full">
-                                                    {media.id.startsWith('local') ? (
-                                                        <div className="w-full h-full rounded-lg bg-brand-dark/30 flex items-center justify-center text-brand-light"><Icons.Music className="w-6 h-6" /></div>
-                                                    ) : ( <img src={media.coverUrl} className="w-full h-full rounded-lg object-cover shadow-sm" alt={media.title} /> )}
-                                                </div>
-                                            )}
-                                            {currentTrack?.id === media.id && isPlaying && (
-                                                <div className="absolute inset-0 bg-black/40 rounded-lg flex items-center justify-center z-20"><Icons.Activity className="w-5 h-5 text-brand-accent animate-pulse" /></div>
-                                            )}
-                                        </div>
-                                        
-                                        <div className="flex-1 min-w-0">
-                                            <h3 className={`font-bold text-sm md:text-base truncate ${currentTrack?.id === media.id ? 'text-brand-accent' : 'text-app-text'}`}>{media.title}</h3>
-                                            <p className="text-xs md:text-sm text-app-subtext truncate flex items-center gap-2">{media.artist} {media.type === MediaType.VIDEO && <span className="bg-app-card px-1.5 py-0.5 rounded text-[10px] border border-app-border">VIDEO</span>}</p>
-                                        </div>
-                                        <button onClick={(e) => toggleFavorite(media.id, e)} className="p-2 rounded-full hover:bg-app-bg transition-colors">
-                                            <Icons.Heart className={`w-5 h-5 transition-transform active:scale-90 ${favorites.has(media.id) ? 'fill-brand-accent text-brand-accent' : 'text-app-subtext group-hover:text-app-text'}`} />
-                                        </button>
-                                    </div>
+                            <div className="flex gap-2 mb-6 overflow-x-auto hide-scrollbar">
+                                {(['ALL', 'FAVORITES', 'PLAYLISTS', 'ALBUMS', 'ARTISTS', 'LOCAL'] as const).map(tab => (
+                                    <button key={tab} onClick={() => setLibraryTab(tab)} className={`px-4 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap ${libraryTab === tab ? 'bg-brand-accent text-white shadow-md' : 'bg-app-surface text-app-subtext hover:bg-app-card hover:text-app-text border border-app-border'}`}>
+                                        {tab === 'ALL' ? 'All' : tab.charAt(0) + tab.slice(1).toLowerCase()}
+                                    </button>
                                 ))}
                             </div>
-                        ) : (
-                            <div className="text-center py-20 text-app-subtext">
-                                <Icons.Music className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                                <p>No tracks found.</p>
-                                {libraryTab === 'FAVORITES' && <p className="text-sm mt-2">Tap the heart icon on any song to add it here.</p>}
-                            </div>
-                        )}
-                    </div>
+                        </>
+                    )}
+
+                    {/* PLAYLISTS TAB VIEW */}
+                    {!selectedCollection && libraryTab === 'PLAYLISTS' && (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                            <button onClick={createPlaylist} className="aspect-square bg-app-surface border-2 border-dashed border-app-border rounded-xl flex flex-col items-center justify-center text-app-subtext hover:text-brand-accent hover:border-brand-accent transition-colors group">
+                                <Icons.FolderPlus className="w-8 h-8 mb-2 group-hover:scale-110 transition-transform" />
+                                <span className="font-bold text-sm">Create New</span>
+                            </button>
+                            {playlists.map(playlist => {
+                                const covers = playlist.tracks.slice(0, 4).map(tid => allMedia.find(m => m.id === tid)?.coverUrl).filter(Boolean);
+                                return (
+                                    <div key={playlist.id} onClick={() => setSelectedCollection({ type: 'PLAYLIST', id: playlist.id, title: playlist.name })} className="group relative aspect-square bg-app-card rounded-xl overflow-hidden cursor-pointer shadow-md border border-app-border">
+                                        {covers.length > 0 ? (
+                                            <div className="w-full h-full grid grid-cols-2">
+                                                {covers.length === 1 ? (
+                                                    <img src={covers[0]} className="col-span-2 row-span-2 w-full h-full object-cover" />
+                                                ) : (
+                                                    [0,1,2,3].map(i => (
+                                                        <div key={i} className="w-full h-full relative">
+                                                            {covers[i] ? <img src={covers[i]} className="w-full h-full object-cover" /> : <div className="bg-app-bg w-full h-full"></div>}
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center bg-brand-dark/20 text-brand-light"><Icons.ListMusic className="w-10 h-10 opacity-50" /></div>
+                                        )}
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col justify-end p-3">
+                                            <h3 className="font-bold text-white truncate">{playlist.name}</h3>
+                                            <p className="text-xs text-gray-300">{playlist.tracks.length} tracks</p>
+                                        </div>
+                                        <button onClick={(e) => deletePlaylist(playlist.id, e)} className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-red-500 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <Icons.Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )}
+
+                    {/* ALBUMS TAB VIEW */}
+                    {!selectedCollection && libraryTab === 'ALBUMS' && (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                            {Array.from(albums.entries()).map(([albumName, tracks]) => (
+                                <div key={albumName} onClick={() => setSelectedCollection({ type: 'ALBUM', id: albumName, title: albumName })} className="group cursor-pointer">
+                                    <div className="aspect-square bg-app-card rounded-xl overflow-hidden mb-2 shadow-sm relative border border-app-border">
+                                        <img src={tracks[0].coverUrl} alt={albumName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                        <div className="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-colors"></div>
+                                    </div>
+                                    <h3 className="font-bold text-sm text-app-text truncate">{albumName}</h3>
+                                    <p className="text-xs text-app-subtext truncate">{tracks[0].artist}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* ARTISTS TAB VIEW */}
+                    {!selectedCollection && libraryTab === 'ARTISTS' && (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                            {Array.from(artists.entries()).map(([artistName, tracks]) => (
+                                <div key={artistName} onClick={() => setSelectedCollection({ type: 'ARTIST', id: artistName, title: artistName })} className="group cursor-pointer flex flex-col items-center text-center p-4 bg-app-surface border border-app-border rounded-xl hover:bg-app-card transition-colors">
+                                    <div className="w-24 h-24 rounded-full overflow-hidden mb-3 shadow-md border-2 border-app-border group-hover:border-brand-accent transition-colors">
+                                        <img src={tracks[0].coverUrl} alt={artistName} className="w-full h-full object-cover" />
+                                    </div>
+                                    <h3 className="font-bold text-sm text-app-text truncate w-full">{artistName}</h3>
+                                    <p className="text-xs text-app-subtext">{tracks.length} tracks</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    
+                    {/* LIST OF TRACKS (Filtered / Details) */}
+                    {((!selectedCollection && !['PLAYLISTS', 'ALBUMS', 'ARTISTS'].includes(libraryTab)) || selectedCollection) && (
+                        <div className="space-y-1">
+                            {filteredMedia.length > 0 ? (
+                                <div className="grid gap-3">
+                                    {selectedCollection && (
+                                         <div className="flex gap-4 mb-4">
+                                             <button onClick={() => { playTrack(filteredMedia[0]); }} className="flex items-center gap-2 bg-brand-accent text-white px-6 py-3 rounded-full font-bold shadow-lg hover:bg-brand-light transition transform hover:scale-105">
+                                                 <Icons.Play className="w-5 h-5 fill-current" /> Play All
+                                             </button>
+                                             <button onClick={() => setShuffleOn(true)} className="flex items-center gap-2 bg-app-surface text-app-text border border-app-border px-4 py-3 rounded-full font-bold hover:bg-app-card transition">
+                                                 <Icons.Shuffle className="w-5 h-5" /> Shuffle
+                                             </button>
+                                         </div>
+                                    )}
+                                    {filteredMedia.map(media => (
+                                        <div key={`${media.id}-${selectedCollection?.id || 'list'}`} onClick={() => playTrack(media)} className={`group flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all border border-transparent ${currentTrack?.id === media.id ? 'bg-brand-accent/10 border-brand-accent/20' : 'bg-app-surface hover:bg-app-card hover:shadow-md border-app-border'}`}>
+                                            <div className="relative w-12 h-12 flex-shrink-0">
+                                                {media.type === MediaType.VIDEO ? (
+                                                    <div className="w-full h-full rounded-lg bg-black/80 flex items-center justify-center text-white overflow-hidden">
+                                                        {media.coverUrl ? (
+                                                            <img src={media.coverUrl} className="w-full h-full object-cover opacity-60" />
+                                                        ) : ( <Icons.Maximize2 className="w-5 h-5 relative z-10" /> )}
+                                                        <div className="absolute inset-0 flex items-center justify-center">
+                                                            <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm"><Icons.Play className="w-3 h-3 fill-white text-white ml-0.5" /></div>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="relative w-full h-full">
+                                                        {media.id.startsWith('local') ? (
+                                                            <div className="w-full h-full rounded-lg bg-brand-dark/30 flex items-center justify-center text-brand-light"><Icons.Music className="w-6 h-6" /></div>
+                                                        ) : ( <img src={media.coverUrl} className="w-full h-full rounded-lg object-cover shadow-sm" alt={media.title} /> )}
+                                                    </div>
+                                                )}
+                                                {currentTrack?.id === media.id && isPlaying && (
+                                                    <div className="absolute inset-0 bg-black/40 rounded-lg flex items-center justify-center z-20"><Icons.Activity className="w-5 h-5 text-brand-accent animate-pulse" /></div>
+                                                )}
+                                            </div>
+                                            
+                                            <div className="flex-1 min-w-0">
+                                                <h3 className={`font-bold text-sm md:text-base truncate ${currentTrack?.id === media.id ? 'text-brand-accent' : 'text-app-text'}`}>{media.title}</h3>
+                                                <p className="text-xs md:text-sm text-app-subtext truncate flex items-center gap-2">{media.artist} {media.type === MediaType.VIDEO && <span className="bg-app-card px-1.5 py-0.5 rounded text-[10px] border border-app-border">VIDEO</span>}</p>
+                                            </div>
+                                            
+                                            <div className="flex items-center gap-1 sm:gap-2">
+                                                <button onClick={(e) => toggleFavorite(media.id, e)} className="p-2 rounded-full hover:bg-app-bg transition-colors">
+                                                    <Icons.Heart className={`w-5 h-5 transition-transform active:scale-90 ${favorites.has(media.id) ? 'fill-brand-accent text-brand-accent' : 'text-app-subtext group-hover:text-app-text'}`} />
+                                                </button>
+                                                {selectedCollection?.type === 'PLAYLIST' ? (
+                                                     <button onClick={(e) => removeFromPlaylist(selectedCollection.id, media.id, e)} className="p-2 rounded-full hover:bg-red-500/10 text-app-subtext hover:text-red-500 transition-colors" title="Remove from Playlist">
+                                                         <Icons.X className="w-5 h-5" />
+                                                     </button>
+                                                ) : (
+                                                     <button onClick={(e) => { e.stopPropagation(); setTrackToAction(media); }} className="p-2 rounded-full hover:bg-app-bg text-app-subtext hover:text-brand-accent transition-colors" title="Add to Playlist">
+                                                         <Icons.ListPlus className="w-5 h-5" />
+                                                     </button>
+                                                )}
+                                                {media.id.startsWith('local') && !selectedCollection && (
+                                                     <button onClick={(e) => removeFromLibrary(media.id, e)} className="p-2 rounded-full hover:bg-red-500/10 text-app-subtext hover:text-red-500 transition-colors" title="Delete File">
+                                                         <Icons.Trash2 className="w-5 h-5" />
+                                                     </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-center py-20 text-app-subtext">
+                                    <Icons.Music className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                                    <p>No tracks found.</p>
+                                    {libraryTab === 'FAVORITES' && <p className="text-sm mt-2">Tap the heart icon on any song to add it here.</p>}
+                                    {libraryTab === 'LOCAL' && <p className="text-sm mt-2">Tap "Import" to add files from your device.</p>}
+                                    {selectedCollection?.type === 'PLAYLIST' && <p className="text-sm mt-2">This playlist is empty. Add songs from your library.</p>}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
             {currentView === AppView.AI_CHAT && (
@@ -546,7 +819,11 @@ const App = () => {
         <nav className="fixed bottom-0 left-0 w-full h-[4.5rem] md:w-20 md:h-full md:flex-col bg-app-surface border-t md:border-t-0 md:border-r border-app-border flex items-center justify-around md:justify-center md:gap-10 z-50 transition-colors duration-300">
             <button onClick={() => setCurrentView(AppView.HOME)} className={`flex flex-col items-center gap-1 p-2 transition-colors ${currentView === AppView.HOME ? 'text-brand-accent' : 'text-app-subtext hover:text-app-text'}`}><Icons.Home className="w-6 h-6" /><span className="text-[10px] md:hidden font-medium">Home</span></button>
             <button onClick={() => setCurrentView(AppView.LIBRARY)} className={`flex flex-col items-center gap-1 p-2 transition-colors ${currentView === AppView.LIBRARY ? 'text-brand-accent' : 'text-app-subtext hover:text-app-text'}`}><Icons.Library className="w-6 h-6" /><span className="text-[10px] md:hidden font-medium">Library</span></button>
-            <div className="hidden md:flex w-12 h-12 rounded-2xl bg-brand-DEFAULT shadow-[0_0_15px_rgba(13,148,136,0.4)] items-center justify-center"><span className="font-bold text-white text-xl">M</span></div>
+            
+            <div className="hidden md:flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-light to-brand-dark text-white shadow-lg">
+                <Icons.Play className="w-6 h-6 fill-white" />
+            </div>
+            
             <button onClick={() => setCurrentView(AppView.AI_CHAT)} className={`flex flex-col items-center gap-1 p-2 transition-colors ${currentView === AppView.AI_CHAT ? 'text-brand-accent' : 'text-app-subtext hover:text-app-text'}`}><Icons.Wand2 className="w-6 h-6" /><span className="text-[10px] md:hidden font-medium">Assistant</span></button>
             <button onClick={() => setCurrentView(AppView.SETTINGS)} className={`flex flex-col items-center gap-1 p-2 transition-colors ${currentView === AppView.SETTINGS ? 'text-brand-accent' : 'text-app-subtext hover:text-app-text'}`}><Icons.Settings className="w-6 h-6" /><span className="text-[10px] md:hidden font-medium">Settings</span></button>
         </nav>

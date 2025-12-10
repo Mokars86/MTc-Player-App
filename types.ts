@@ -24,6 +24,14 @@ export interface LyricLine {
   text: string;
 }
 
+export interface Playlist {
+  id: string;
+  name: string;
+  tracks: string[]; // Array of MediaItem IDs
+  createdAt: number;
+  description?: string;
+}
+
 export enum AppView {
   HOME = 'HOME',
   LIBRARY = 'LIBRARY',
