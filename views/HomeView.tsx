@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Icons } from '../components/Icon';
 import { MOODS } from '../constants';
@@ -5,19 +6,26 @@ import { generatePlaylistByMood, hasApiKey } from '../services/geminiService';
 
 interface HomeViewProps {
   onPlayDemo: () => void;
+  onOpenProfile: () => void;
+  userName: string;
+  isOnline: boolean;
 }
 
-const HomeView: React.FC<HomeViewProps> = ({ onPlayDemo }) => {
+const HomeView: React.FC<HomeViewProps> = ({ onPlayDemo, onOpenProfile, userName, isOnline }) => {
   const [aiSuggestions, setAiSuggestions] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedMood, setSelectedMood] = useState<string | null>(null);
 
   const handleMoodSelect = async (mood: string) => {
+    if (!isOnline) return;
     setSelectedMood(mood);
     setLoading(true);
+    setAiSuggestions(null); // Reset previous suggestions
+    
     const result = await generatePlaylistByMood(mood);
     try {
       const parsed = JSON.parse(result);
+      // Simulate network delay for effect if result is instant (optional)
       setAiSuggestions(parsed);
     } catch (e) {
       console.error("Failed to parse AI response", e);
@@ -32,27 +40,31 @@ const HomeView: React.FC<HomeViewProps> = ({ onPlayDemo }) => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-app-text">
-            Good Evening
+            Good Evening, {userName.split(' ')[0]}
           </h1>
-          <p className="text-brand-light text-sm mt-1">Ready for your session?</p>
+          <p className="text-brand-light text-sm mt-1">{isOnline ? "Ready for your session?" : "Offline Mode Active"}</p>
         </div>
-        <div className="w-10 h-10 rounded-full bg-brand-dark overflow-hidden border-2 border-brand-accent">
-          <img src="https://picsum.photos/100/100" alt="Profile" className="w-full h-full object-cover" />
-        </div>
+        <button onClick={onOpenProfile} className="w-10 h-10 rounded-full bg-brand-dark overflow-hidden border-2 border-brand-accent hover:scale-105 transition-transform shadow-lg cursor-pointer">
+          <img src={`https://ui-avatars.com/api/?name=${userName}&background=0d9488&color=fff`} alt="Profile" className="w-full h-full object-cover" />
+        </button>
       </div>
 
       {/* Mood Selector */}
       <section>
-        <div className="flex items-center gap-2 mb-4">
-          <Icons.Wand2 className="w-5 h-5 text-brand-accent" />
-          <h2 className="text-xl font-semibold text-app-text">Mood Station</h2>
+        <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+                <Icons.Wand2 className={`w-5 h-5 ${isOnline ? 'text-brand-accent' : 'text-gray-500'}`} />
+                <h2 className={`text-xl font-semibold ${isOnline ? 'text-app-text' : 'text-gray-500'}`}>Mood Station {isOnline ? '' : '(Offline)'}</h2>
+            </div>
+            {!isOnline && <span className="text-xs text-red-400 border border-red-500/30 px-2 py-1 rounded-full bg-red-500/10">Internet required</span>}
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className={`grid grid-cols-2 md:grid-cols-3 gap-4 ${!isOnline ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
             {MOODS.map((m) => (
                 <button 
                     key={m.label}
                     onClick={() => handleMoodSelect(m.label)}
-                    className={`relative overflow-hidden rounded-xl h-24 p-4 flex flex-col justify-end transition-transform transform hover:scale-105 active:scale-95 ${selectedMood === m.label ? 'ring-2 ring-brand-light' : ''}`}
+                    disabled={loading || !isOnline}
+                    className={`relative overflow-hidden rounded-xl h-24 p-4 flex flex-col justify-end transition-transform transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100 ${selectedMood === m.label ? 'ring-2 ring-brand-light' : ''}`}
                 >
                     <div className={`absolute inset-0 ${m.color} opacity-90 z-0`}></div>
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent z-0"></div>
@@ -63,43 +75,49 @@ const HomeView: React.FC<HomeViewProps> = ({ onPlayDemo }) => {
         </div>
       </section>
 
-      {/* AI Results */}
-      {loading && (
-        <div className="flex items-center justify-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-accent"></div>
-            <span className="ml-3 text-brand-light animate-pulse">Consulting AI DJ...</span>
-        </div>
-      )}
-
-      {aiSuggestions && !loading && (
-        <section className="glass-panel rounded-2xl p-4 border-app-border border shadow-sm">
+      {/* AI Results Section */}
+      {(loading || aiSuggestions) && (
+        <section className="glass-panel rounded-2xl p-4 border-app-border border shadow-sm animate-fade-in">
              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-bold text-app-text">AI Recommended for "{selectedMood}"</h2>
-                <button 
-                    onClick={() => setAiSuggestions(null)} 
-                    className="text-xs text-app-subtext hover:text-brand-light"
-                >
-                    Clear
-                </button>
+                <h2 className="text-lg font-bold text-app-text">
+                   {loading ? `Consulting AI for "${selectedMood}"...` : `AI Recommended for "${selectedMood}"`}
+                </h2>
+                {!loading && (
+                    <button onClick={() => setAiSuggestions(null)} className="text-xs text-app-subtext hover:text-brand-light">Clear</button>
+                )}
              </div>
+             
              <div className="space-y-3">
-                {aiSuggestions.map((track, idx) => (
-                    <div key={idx} className="flex items-center gap-3 p-2 hover:bg-app-text/5 rounded-lg group cursor-pointer" onClick={onPlayDemo}>
-                        <div className="w-10 h-10 rounded bg-brand-dark/50 flex items-center justify-center text-brand-light font-bold">
-                            {idx + 1}
+                {loading ? (
+                    // Skeleton Loading State
+                    Array.from({ length: 3 }).map((_, i) => (
+                        <div key={i} className="flex items-center gap-3 p-2 rounded-lg">
+                            <div className="w-10 h-10 rounded bg-app-card animate-pulse"></div>
+                            <div className="flex-1 space-y-2">
+                                <div className="h-4 bg-app-card rounded w-3/4 animate-pulse"></div>
+                                <div className="h-3 bg-app-card rounded w-1/2 animate-pulse"></div>
+                            </div>
                         </div>
-                        <div className="flex-1">
-                            <h3 className="font-semibold text-sm text-app-text group-hover:text-brand-accent">{track.title}</h3>
-                            <p className="text-xs text-app-subtext">{track.artist}</p>
+                    ))
+                ) : (
+                    aiSuggestions && aiSuggestions.map((track, idx) => (
+                        <div key={idx} className="flex items-center gap-3 p-2 hover:bg-app-text/5 rounded-lg group cursor-pointer" onClick={onPlayDemo}>
+                            <div className="w-10 h-10 rounded bg-brand-dark/50 flex items-center justify-center text-brand-light font-bold">
+                                {idx + 1}
+                            </div>
+                            <div className="flex-1">
+                                <h3 className="font-semibold text-sm text-app-text group-hover:text-brand-accent">{track.title}</h3>
+                                <p className="text-xs text-app-subtext">{track.artist}</p>
+                            </div>
+                            <p className="text-xs text-app-subtext italic hidden sm:block">"{track.reason}"</p>
+                            <button className="p-2 rounded-full hover:bg-brand-accent/20 text-brand-accent">
+                                <Icons.Play className="w-4 h-4" />
+                            </button>
                         </div>
-                        <p className="text-xs text-app-subtext italic hidden sm:block">"{track.reason}"</p>
-                        <button className="p-2 rounded-full hover:bg-brand-accent/20 text-brand-accent">
-                            <Icons.Play className="w-4 h-4" />
-                        </button>
-                    </div>
-                ))}
+                    ))
+                )}
              </div>
-             {!hasApiKey() && <p className="text-xs text-red-400 mt-2 text-center">API Key not detected. Using mock generation logic in production.</p>}
+             {!loading && !hasApiKey() && <p className="text-xs text-red-400 mt-2 text-center">API Key not detected. Using mock generation logic in production.</p>}
         </section>
       )}
 

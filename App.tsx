@@ -6,28 +6,54 @@ import { Icons } from './components/Icon';
 import HomeView from './views/HomeView';
 import PlayerView from './views/PlayerView';
 import AIChatView from './views/AIChatView';
+import { ToastProvider, useToast } from './components/Toast';
+import ErrorBoundary from './components/ErrorBoundary';
+import { Modal } from './components/Modal';
+import { api } from './services/api';
 
 const SplashScreen = ({ onComplete }: { onComplete: () => void }) => {
-  useEffect(() => {
-    const timer = setTimeout(onComplete, 2500);
-    return () => clearTimeout(timer);
-  }, [onComplete]);
-
   return (
-    <div className="fixed inset-0 z-[100] bg-app-bg flex flex-col items-center justify-center animate-fade-in">
-      <div className="relative w-24 h-24 mb-8">
-          <div className="absolute inset-0 bg-brand-DEFAULT rounded-2xl rotate-6 opacity-20 animate-pulse"></div>
-          <div className="absolute inset-0 bg-brand-dark rounded-2xl -rotate-6 opacity-20 animate-pulse delay-75"></div>
-          <div className="relative bg-app-surface w-full h-full rounded-2xl border border-brand-accent/20 flex items-center justify-center shadow-2xl">
-                <Icons.Play className="w-12 h-12 text-brand-accent fill-brand-accent" />
+    <div className="fixed inset-0 z-[100] bg-app-bg flex flex-col items-center justify-center animate-fade-in overflow-hidden">
+       {/* Ambient Glow */}
+       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-brand-accent/5 rounded-full blur-3xl pointer-events-none"></div>
+
+       {/* Logo Container */}
+      <div className="relative w-32 h-32 mb-8 group perspective-1000">
+          <div className="absolute inset-0 bg-brand-accent/20 rounded-3xl blur-xl animate-pulse"></div>
+          
+          <div className="relative w-full h-full bg-gradient-to-br from-brand-dark to-black rounded-3xl shadow-2xl flex items-center justify-center border border-white/10 overflow-hidden">
+               {/* Abstract geometric shapes */}
+               <div className="absolute -top-10 -right-10 w-24 h-24 bg-brand-light/20 rounded-full blur-md"></div>
+               <div className="absolute -bottom-5 -left-5 w-20 h-20 bg-brand-accent/20 rounded-full blur-md"></div>
+               
+               {/* Center Icon */}
+               <div className="relative z-10 flex flex-col items-center">
+                    <Icons.Disc className="w-14 h-14 text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)] animate-[spin_8s_linear_infinite]" />
+               </div>
+               
+               {/* Waveform at bottom */}
+               <div className="absolute bottom-3 flex gap-1 items-end h-8 opacity-60">
+                   {[10, 20, 15, 25, 12].map((h, i) => (
+                       <div key={i} className="w-1.5 bg-brand-light/80 rounded-t-full animate-bounce" style={{ height: `${h}px`, animationDuration: `${0.6 + i * 0.1}s`, animationDelay: `${i * 0.1}s` }}></div>
+                   ))}
+               </div>
+          </div>
+          
+          {/* Floating 'Play' badge */}
+          <div className="absolute -right-3 -bottom-3 bg-app-surface border border-app-border p-2 rounded-xl shadow-lg">
+               <Icons.Play className="w-5 h-5 text-brand-accent fill-brand-accent" />
           </div>
       </div>
-      <h1 className="text-4xl font-bold text-app-text tracking-wider mb-2">MTc Player</h1>
-      <p className="text-brand-light text-sm tracking-widest uppercase opacity-80">Premium Media Experience</p>
+
+      <div className="text-center z-10">
+        <h1 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-brand-light tracking-tighter mb-2 drop-shadow-sm">MTc</h1>
+        <p className="text-brand-accent text-xs tracking-[0.4em] uppercase font-bold">Sonic Intelligence</p>
+      </div>
       
-      <div className="absolute bottom-10 w-48 h-1 bg-app-card rounded-full overflow-hidden">
+      <div className="absolute bottom-12 w-64 h-1 bg-app-card rounded-full overflow-hidden">
         <div className="h-full bg-brand-accent animate-[slideUp_2s_ease-in-out_infinite] w-full origin-left scale-x-0" style={{ animationName: 'progress' }}></div>
       </div>
+      
       <style>{`
         @keyframes progress {
             0% { transform: scaleX(0); }
@@ -38,8 +64,31 @@ const SplashScreen = ({ onComplete }: { onComplete: () => void }) => {
   );
 };
 
-const App = () => {
+// Sync Status Indicator Component
+const SyncStatus = ({ status }: { status: 'idle' | 'syncing' | 'synced' | 'error' }) => {
+    if (status === 'idle') return null;
+    
+    return (
+        <div className={`fixed top-4 right-4 z-[90] flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border shadow-lg transition-all duration-500 ${
+            status === 'syncing' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : 
+            status === 'synced' ? 'bg-green-500/10 border-green-500/20 text-green-400' :
+            'bg-red-500/10 border-red-500/20 text-red-400'
+        }`}>
+            {status === 'syncing' && <Icons.Disc className="w-3 h-3 animate-spin" />}
+            {status === 'synced' && <Icons.Gauge className="w-3 h-3" />} 
+            <span className="text-xs font-bold uppercase tracking-wider">
+                {status === 'syncing' ? 'Syncing...' : status === 'synced' ? 'Cloud Synced' : 'Sync Error'}
+            </span>
+        </div>
+    );
+};
+
+// Internal App Component (Wrapped by Providers below)
+const AppContent = () => {
   const [showSplash, setShowSplash] = useState(true);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+
   const [currentView, setCurrentView] = useState<AppView>(AppView.HOME);
   const [currentTrack, setCurrentTrack] = useState<MediaItem | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -47,6 +96,13 @@ const App = () => {
   const [duration, setDuration] = useState(0);
   const [theme, setTheme] = useState<Theme>('light');
   
+  // Offline / Network State
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  // User Profile State
+  const [userName, setUserName] = useState('Guest User');
+  const [showProfileModal, setShowProfileModal] = useState(false);
+
   // Player Logic State
   const [shuffleOn, setShuffleOn] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>(RepeatMode.OFF);
@@ -57,50 +113,129 @@ const App = () => {
 
   // Library & Favorites State
   const [localLibrary, setLocalLibrary] = useState<MediaItem[]>([]);
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    const saved = localStorage.getItem('mtc_favorites');
-    return saved ? new Set(JSON.parse(saved)) : new Set();
-  });
+  // Initialized empty, loaded via API
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  
   const [libraryTab, setLibraryTab] = useState<'ALL' | 'FAVORITES' | 'PLAYLISTS' | 'ALBUMS' | 'ARTISTS' | 'LOCAL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Playlist & Collection State
-  const [playlists, setPlaylists] = useState<Playlist[]>(() => {
-    const saved = localStorage.getItem('mtc_playlists');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [showPlaylistModal, setShowPlaylistModal] = useState(false);
+  const [newPlaylistName, setNewPlaylistName] = useState('');
   
-  // Replaces activePlaylistId to generic collection selection
   const [selectedCollection, setSelectedCollection] = useState<{ type: 'PLAYLIST' | 'ALBUM' | 'ARTIST', id: string, title: string } | null>(null);
-  const [trackToAction, setTrackToAction] = useState<MediaItem | null>(null); // Track selected for adding to playlist
+  const [trackToAction, setTrackToAction] = useState<MediaItem | null>(null); 
 
   // Gesture Settings
-  const [gestureSettings, setGestureSettings] = useState<GestureSettings>(() => {
-    const saved = localStorage.getItem('mtc_gestures');
-    return saved ? JSON.parse(saved) : {
+  const [gestureSettings, setGestureSettings] = useState<GestureSettings>({
       [GestureType.SWIPE]: GestureAction.SEEK,
       [GestureType.PINCH]: GestureAction.ZOOM,
       [GestureType.CIRCLE]: GestureAction.VOLUME
-    };
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  
   const handleNextRef = useRef<(autoTrigger?: boolean) => void>(() => {});
+  
+  const { showToast } = useToast(); 
 
-  // Persistence
+  // --- INITIAL DATA LOAD (Simulating Backend) ---
   useEffect(() => {
-    localStorage.setItem('mtc_favorites', JSON.stringify(Array.from(favorites)));
-  }, [favorites]);
+    const loadData = async () => {
+        try {
+            const data = await api.fetchUserData();
+            setPlaylists(data.playlists);
+            setFavorites(new Set(data.favorites));
+            if (data.gestures) setGestureSettings(data.gestures);
+            
+            // Artificial delay to show splash screen a bit longer if data loads too fast
+            setTimeout(() => {
+                setIsDataLoaded(true);
+                setShowSplash(false);
+            }, 800);
+        } catch (e) {
+            console.error("Failed to load user data", e);
+            showToast("Failed to connect to cloud services", "error");
+            setIsDataLoaded(true);
+            setShowSplash(false);
+        }
+    };
+    loadData();
+  }, [showToast]);
+
+  // --- SYNC EFFECTS ---
+  // We use refs to prevent syncing on initial load
+  const isMounted = useRef(false);
 
   useEffect(() => {
-    localStorage.setItem('mtc_gestures', JSON.stringify(gestureSettings));
-  }, [gestureSettings]);
+      if (!isMounted.current) { isMounted.current = true; return; }
+      if (!isDataLoaded) return;
+
+      const sync = async () => {
+          setSyncStatus('syncing');
+          try {
+              await api.syncPlaylists(playlists);
+              setSyncStatus('synced');
+              setTimeout(() => setSyncStatus('idle'), 2000);
+          } catch (e) {
+              setSyncStatus('error');
+          }
+      };
+      // Debounce logic could go here
+      const timeout = setTimeout(sync, 1000);
+      return () => clearTimeout(timeout);
+  }, [playlists, isDataLoaded]);
 
   useEffect(() => {
-    localStorage.setItem('mtc_playlists', JSON.stringify(playlists));
-  }, [playlists]);
+      if (!isMounted.current || !isDataLoaded) return;
+      const sync = async () => {
+          setSyncStatus('syncing');
+          try {
+              await api.syncFavorites(Array.from(favorites));
+              setSyncStatus('synced');
+              setTimeout(() => setSyncStatus('idle'), 2000);
+          } catch (e) {
+              setSyncStatus('error');
+          }
+      };
+      const timeout = setTimeout(sync, 1000);
+      return () => clearTimeout(timeout);
+  }, [favorites, isDataLoaded]);
+
+  useEffect(() => {
+      if (!isMounted.current || !isDataLoaded) return;
+      const sync = async () => {
+          setSyncStatus('syncing');
+          try {
+              await api.syncGestures(gestureSettings);
+              setSyncStatus('synced');
+              setTimeout(() => setSyncStatus('idle'), 2000);
+          } catch (e) {
+              setSyncStatus('error');
+          }
+      };
+      const timeout = setTimeout(sync, 1000);
+      return () => clearTimeout(timeout);
+  }, [gestureSettings, isDataLoaded]);
+
+  // Network Status Listeners
+  useEffect(() => {
+    const handleOnline = () => { 
+        setIsOnline(true); 
+        showToast("Connected to Cloud Services", "success"); 
+    };
+    const handleOffline = () => { 
+        setIsOnline(false); 
+        showToast("Offline Mode: Changes saved locally", "info"); 
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+    };
+  }, [showToast]);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -154,6 +289,7 @@ const App = () => {
               if (audioRef.current) audioRef.current.pause();
               setSleepTimer(prev => ({ ...prev, active: false, endTime: null }));
               clearInterval(interval);
+              showToast("Sleep timer ended.", "info");
           }
       }, 1000);
 
@@ -163,18 +299,19 @@ const App = () => {
   const setTimer = (minutes: number | null) => {
       if (minutes === null) {
           setSleepTimer({ active: false, endTime: null, fadeDuration: 60000 });
+          showToast("Sleep timer disabled");
       } else {
           setSleepTimer({ 
               active: true, 
               endTime: Date.now() + minutes * 60 * 1000, 
               fadeDuration: 60000 
           });
+          showToast(`Sleep timer set for ${minutes} minutes`, "success");
       }
   };
 
   const allMedia = useMemo(() => [...localLibrary, ...DEMO_MEDIA], [localLibrary]);
 
-  // Grouping Logic
   const albums = useMemo(() => {
       const map = new Map<string, MediaItem[]>();
       allMedia.forEach(m => {
@@ -198,7 +335,6 @@ const App = () => {
   const filteredMedia = useMemo(() => {
     let media = allMedia;
     
-    // Detailed Collection View Filtering
     if (selectedCollection) {
         if (selectedCollection.type === 'PLAYLIST') {
              const playlist = playlists.find(p => p.id === selectedCollection.id);
@@ -213,25 +349,19 @@ const App = () => {
              media = artists.get(selectedCollection.title) || [];
         }
     } else {
-        // Standard library filtering
         if (libraryTab === 'FAVORITES') {
           media = media.filter(m => favorites.has(m.id));
         } else if (libraryTab === 'LOCAL') {
           media = localLibrary;
         } else if (libraryTab === 'PLAYLISTS' || libraryTab === 'ALBUMS' || libraryTab === 'ARTISTS') {
-           // These tabs display grids, not list of tracks directly
            media = [];
         }
     }
 
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      // If we are in grid views, we might handle search there, but usually search filters tracks
-      // For simplicity, if searching, we show matching tracks globally unless in a collection
       if (!selectedCollection && (libraryTab === 'PLAYLISTS' || libraryTab === 'ALBUMS' || libraryTab === 'ARTISTS')) {
-          // Could implement specific search logic for these, but let's fall back to track search for now
       }
-      
       media = media.filter(m => 
         m.title.toLowerCase().includes(query) || 
         m.artist.toLowerCase().includes(query) ||
@@ -253,6 +383,13 @@ const App = () => {
       return;
     }
 
+    // Check offline capability for remote tracks
+    if (!isOnline && !track.id.startsWith('local-') && !track.mediaUrl.startsWith('blob:')) {
+        showToast("Offline: Cannot play remote track.", "error");
+        setIsPlaying(false);
+        return;
+    }
+
     try {
       audioRef.current.pause(); 
       audioRef.current.src = track.mediaUrl;
@@ -264,12 +401,14 @@ const App = () => {
       setIsPlaying(true);
     } catch (error: any) {
       if (error.name === 'AbortError') {
+          // Expected when switching tracks quickly
       } else {
           console.error("PlayTrack failed:", error);
           setIsPlaying(false);
+          showToast(`Error: ${error.message || "Failed to load media"}`, "error");
       }
     }
-  }, []);
+  }, [showToast, isOnline]);
 
   const handleNext = useCallback((autoTrigger = false) => {
      if(!currentTrack) return;
@@ -349,7 +488,9 @@ const App = () => {
     const onError = (e: Event) => {
         const target = e.target as HTMLAudioElement;
         if (target.error && target.error.code !== target.error.MEDIA_ERR_ABORTED) {
-            console.error("Audio playback error:", target.error.code, target.error.message);
+             // Suppress errors if we know we are offline
+             if (!navigator.onLine) return;
+             showToast("Playback Error: Code " + target.error.code, "error");
         }
     };
 
@@ -365,7 +506,7 @@ const App = () => {
       audio.removeEventListener('error', onError);
       audio.pause();
     };
-  }, []); 
+  }, [showToast]); 
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
@@ -388,36 +529,60 @@ const App = () => {
     if (e) e.stopPropagation();
     if (confirm("Remove this track from your local library?")) {
         setLocalLibrary(prev => prev.filter(item => item.id !== id));
+        showToast("Track removed from library");
     }
   };
 
   const clearLocalLibrary = () => {
       if (confirm("Clear all local tracks? This action cannot be undone.")) {
           setLocalLibrary([]);
+          showToast("Local library cleared");
       }
   };
 
-  const toggleShuffle = () => setShuffleOn(prev => !prev);
+  const toggleShuffle = () => {
+    setShuffleOn(prev => {
+        const newVal = !prev;
+        showToast(newVal ? "Shuffle On" : "Shuffle Off");
+        return newVal;
+    });
+  }
   
   const toggleRepeat = () => {
       setRepeatMode(prev => {
-          if (prev === RepeatMode.OFF) return RepeatMode.ALL;
-          if (prev === RepeatMode.ALL) return RepeatMode.ONE;
+          if (prev === RepeatMode.OFF) {
+              showToast("Repeat All");
+              return RepeatMode.ALL;
+          }
+          if (prev === RepeatMode.ALL) {
+              showToast("Repeat One");
+              return RepeatMode.ONE;
+          }
+          showToast("Repeat Off");
           return RepeatMode.OFF;
       });
   };
 
-  // --- PLAYLIST LOGIC ---
-  const createPlaylist = () => {
-      const name = prompt("Enter playlist name:");
-      if (!name) return;
+  // Modern Playlist Creation using Modal
+  const openCreatePlaylistModal = () => {
+      setNewPlaylistName('');
+      setShowPlaylistModal(true);
+  };
+
+  const handleCreatePlaylist = () => {
+      if (!newPlaylistName.trim()) {
+          showToast("Please enter a playlist name", "error");
+          return;
+      }
       const newPlaylist: Playlist = {
           id: `pl-${Date.now()}`,
-          name,
+          name: newPlaylistName,
           tracks: [],
           createdAt: Date.now()
       };
       setPlaylists(prev => [newPlaylist, ...prev]);
+      showToast(`Playlist "${newPlaylistName}" created`, "success");
+      setShowPlaylistModal(false);
   };
 
   const deletePlaylist = (id: string, e: React.MouseEvent) => {
@@ -425,17 +590,27 @@ const App = () => {
       if (confirm("Delete this playlist?")) {
           setPlaylists(prev => prev.filter(p => p.id !== id));
           if (selectedCollection?.id === id) setSelectedCollection(null);
+          showToast("Playlist deleted");
       }
   };
 
   const addToPlaylist = (playlistId: string, trackId: string) => {
+      let added = false;
       setPlaylists(prev => prev.map(p => {
-          if (p.id === playlistId && !p.tracks.includes(trackId)) {
-              return { ...p, tracks: [...p.tracks, trackId] };
+          if (p.id === playlistId) {
+              if(!p.tracks.includes(trackId)) {
+                  added = true;
+                  return { ...p, tracks: [...p.tracks, trackId] };
+              } else {
+                  showToast("Track already in playlist", "info");
+              }
           }
           return p;
       }));
-      setTrackToAction(null);
+      if (added) {
+          showToast("Added to playlist", "success");
+          setTrackToAction(null);
+      }
   };
 
   const removeFromPlaylist = (playlistId: string, trackId: string, e?: React.MouseEvent) => {
@@ -446,46 +621,53 @@ const App = () => {
           }
           return p;
       }));
+      showToast("Removed from playlist");
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
-    const newTracks: MediaItem[] = Array.from(files).map((file: File, index) => {
-        const isVideo = file.type.startsWith('video');
-        const objectUrl = URL.createObjectURL(file);
-        
-        let title = file.name.replace(/\.[^/.]+$/, ""); 
-        let artist = 'Local Artist';
+    try {
+        const newTracks: MediaItem[] = Array.from(files).map((file: File, index) => {
+            const isVideo = file.type.startsWith('video');
+            const objectUrl = URL.createObjectURL(file);
+            
+            let title = file.name.replace(/\.[^/.]+$/, ""); 
+            let artist = 'Local Artist';
 
-        if (title.includes('-')) {
-            const parts = title.split('-');
-            if (parts.length >= 2) {
-                artist = parts[0].trim();
-                title = parts.slice(1).join('-').trim();
+            if (title.includes('-')) {
+                const parts = title.split('-');
+                if (parts.length >= 2) {
+                    artist = parts[0].trim();
+                    title = parts.slice(1).join('-').trim();
+                }
             }
+
+            return {
+                id: `local-${Date.now()}-${index}`,
+                title: title,
+                artist: artist,
+                album: 'Local Uploads',
+                coverUrl: isVideo ? '' : 'https://picsum.photos/400/400?grayscale', 
+                mediaUrl: objectUrl,
+                type: isVideo ? MediaType.VIDEO : MediaType.MUSIC,
+                duration: 0, 
+                moods: ['Local']
+            };
+        });
+
+        setLocalLibrary(prev => [...newTracks, ...prev]);
+        setLibraryTab('LOCAL');
+        setCurrentView(AppView.LIBRARY);
+        showToast(`Imported ${newTracks.length} files`, "success");
+        
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
         }
-
-        return {
-            id: `local-${Date.now()}-${index}`,
-            title: title,
-            artist: artist,
-            album: 'Local Uploads',
-            coverUrl: isVideo ? '' : 'https://picsum.photos/400/400?grayscale', 
-            mediaUrl: objectUrl,
-            type: isVideo ? MediaType.VIDEO : MediaType.MUSIC,
-            duration: 0, 
-            moods: ['Local']
-        };
-    });
-
-    setLocalLibrary(prev => [...newTracks, ...prev]);
-    setLibraryTab('LOCAL');
-    setCurrentView(AppView.LIBRARY);
-    
-    if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+    } catch(e) {
+        console.error(e);
+        showToast("Failed to import files", "error");
     }
   };
 
@@ -503,7 +685,10 @@ const App = () => {
     } else {
       if (currentTrack.type !== MediaType.VIDEO && audioRef.current) {
         audioRef.current.play().catch(e => {
-            if (e.name !== 'AbortError') console.error("Playback failed", e);
+            if (e.name !== 'AbortError') {
+                console.error("Playback failed", e);
+                showToast("Playback failed", "error");
+            }
         });
       }
       setIsPlaying(true);
@@ -519,6 +704,7 @@ const App = () => {
 
   const updateGesture = (type: GestureType, action: GestureAction) => {
     setGestureSettings(prev => ({ ...prev, [type]: action }));
+    showToast("Gesture settings updated");
   };
 
   if (showSplash) {
@@ -534,16 +720,98 @@ const App = () => {
         <div className="flex flex-col h-screen bg-app-bg text-app-text overflow-hidden relative font-sans selection:bg-brand-accent selection:text-white transition-colors duration-300">
         <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="audio/*,video/*" multiple className="hidden" />
         
-        {/* ADD TO PLAYLIST MODAL */}
+        <SyncStatus status={syncStatus} />
+        
+        {/* Offline Banner */}
+        {!isOnline && (
+            <div className="bg-red-600 text-white text-xs font-bold text-center py-1 absolute top-0 w-full z-[60] shadow-md animate-slide-up">
+                You are currently offline. Some features may be limited.
+            </div>
+        )}
+
+        {/* PROFILE MODAL */}
+        <Modal 
+            isOpen={showProfileModal} 
+            onClose={() => setShowProfileModal(false)}
+            title="User Profile"
+        >
+            <div className="flex flex-col items-center gap-4 text-center">
+                <div className="w-24 h-24 rounded-full bg-brand-dark p-1 border-4 border-brand-accent shadow-xl relative group">
+                    <img src={`https://ui-avatars.com/api/?name=${userName}&background=0d9488&color=fff`} className="w-full h-full rounded-full object-cover" />
+                    <button onClick={() => { const n = prompt("Enter new name:", userName); if(n) setUserName(n); }} className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Icons.Settings className="w-6 h-6 text-white" />
+                    </button>
+                </div>
+                <div>
+                    <h2 className="text-2xl font-bold text-app-text">{userName}</h2>
+                    <p className="text-app-subtext">Free Tier Account</p>
+                </div>
+                
+                <div className="grid grid-cols-3 gap-4 w-full mt-4">
+                    <div className="bg-app-bg p-3 rounded-xl border border-app-border">
+                        <div className="text-2xl font-bold text-brand-accent">{playlists.length}</div>
+                        <div className="text-xs text-app-subtext">Playlists</div>
+                    </div>
+                    <div className="bg-app-bg p-3 rounded-xl border border-app-border">
+                        <div className="text-2xl font-bold text-brand-accent">{favorites.size}</div>
+                        <div className="text-xs text-app-subtext">Favorites</div>
+                    </div>
+                    <div className="bg-app-bg p-3 rounded-xl border border-app-border">
+                        <div className="text-2xl font-bold text-brand-accent">{localLibrary.length}</div>
+                        <div className="text-xs text-app-subtext">Local</div>
+                    </div>
+                </div>
+
+                <div className="w-full mt-2">
+                    <button onClick={() => { setShowProfileModal(false); setCurrentView(AppView.SETTINGS); }} className="w-full py-3 rounded-xl bg-app-card hover:bg-app-border transition-colors text-app-text font-semibold flex items-center justify-center gap-2">
+                        <Icons.Settings className="w-5 h-5"/> Settings
+                    </button>
+                </div>
+            </div>
+        </Modal>
+
+        {/* CREATE PLAYLIST MODAL */}
+        <Modal
+            isOpen={showPlaylistModal}
+            onClose={() => setShowPlaylistModal(false)}
+            title="Create Playlist"
+            footer={
+                <>
+                    <button onClick={() => setShowPlaylistModal(false)} className="px-4 py-2 text-app-subtext hover:text-app-text transition-colors">Cancel</button>
+                    <button onClick={handleCreatePlaylist} className="px-6 py-2 bg-brand-accent hover:bg-brand-light text-white rounded-lg font-bold shadow-lg transition-transform active:scale-95">Create</button>
+                </>
+            }
+        >
+            <div className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-app-subtext mb-1">Playlist Name</label>
+                    <input 
+                        type="text" 
+                        value={newPlaylistName} 
+                        onChange={(e) => setNewPlaylistName(e.target.value)} 
+                        placeholder="My Awesome Mix" 
+                        className="w-full bg-app-bg border border-app-border rounded-xl px-4 py-3 text-app-text focus:ring-2 focus:ring-brand-accent outline-none"
+                        autoFocus
+                        onKeyDown={(e) => e.key === 'Enter' && handleCreatePlaylist()}
+                    />
+                </div>
+                <div className="text-xs text-app-subtext bg-app-bg/50 p-3 rounded-lg border border-app-border">
+                    <Icons.Info className="w-4 h-4 inline mr-1 text-brand-accent" />
+                    You can add tracks to this playlist from the library or player view.
+                </div>
+            </div>
+        </Modal>
+
+        {/* ADD TO PLAYLIST MODAL (Existing, simple overlay) */}
         {trackToAction && (
-            <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setTrackToAction(null)}>
-                <div className="bg-app-card border border-app-border rounded-xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={() => setTrackToAction(null)}>
+                <div className="bg-app-card border border-app-border rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-slide-up" onClick={e => e.stopPropagation()}>
                     <div className="p-4 border-b border-app-border flex justify-between items-center bg-app-surface">
                         <h3 className="font-bold text-app-text">Add to Playlist</h3>
                         <button onClick={() => setTrackToAction(null)}><Icons.X className="w-5 h-5 text-app-subtext hover:text-app-text" /></button>
                     </div>
                     <div className="max-h-[60vh] overflow-y-auto">
-                        <button onClick={() => { createPlaylist(); }} className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-app-bg text-brand-accent font-medium border-b border-app-border/50">
+                        <button onClick={() => { setTrackToAction(null); openCreatePlaylistModal(); }} className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-app-bg text-brand-accent font-medium border-b border-app-border/50">
                             <Icons.FolderPlus className="w-5 h-5" /> Create New Playlist
                         </button>
                         {playlists.map(p => (
@@ -552,15 +820,20 @@ const App = () => {
                                 <span className="text-xs text-app-subtext">{p.tracks.length} tracks</span>
                             </button>
                         ))}
-                        {playlists.length === 0 && <div className="p-4 text-center text-sm text-app-subtext">No playlists yet.</div>}
+                        {playlists.length === 0 && <div className="p-4 text-center text-sm text-app-subtext">No playlists available.</div>}
                     </div>
                 </div>
             </div>
         )}
 
-        <main className="flex-1 overflow-y-auto pb-20 scroll-smooth">
+        <main className={`flex-1 overflow-y-auto pb-20 scroll-smooth ${!isOnline ? 'pt-6' : ''}`}>
             {currentView === AppView.HOME && (
-                <HomeView onPlayDemo={() => playTrack(DEMO_MEDIA[0])} />
+                <HomeView 
+                    onPlayDemo={() => playTrack(DEMO_MEDIA[0])} 
+                    onOpenProfile={() => setShowProfileModal(true)}
+                    userName={userName}
+                    isOnline={isOnline}
+                />
             )}
             {currentView === AppView.LIBRARY && (
                 <div className="p-6 animate-slide-up min-h-full">
@@ -607,7 +880,7 @@ const App = () => {
                     {/* PLAYLISTS TAB VIEW */}
                     {!selectedCollection && libraryTab === 'PLAYLISTS' && (
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                            <button onClick={createPlaylist} className="aspect-square bg-app-surface border-2 border-dashed border-app-border rounded-xl flex flex-col items-center justify-center text-app-subtext hover:text-brand-accent hover:border-brand-accent transition-colors group">
+                            <button onClick={openCreatePlaylistModal} className="aspect-square bg-app-surface border-2 border-dashed border-app-border rounded-xl flex flex-col items-center justify-center text-app-subtext hover:text-brand-accent hover:border-brand-accent transition-colors group">
                                 <Icons.FolderPlus className="w-8 h-8 mb-2 group-hover:scale-110 transition-transform" />
                                 <span className="font-bold text-sm">Create New</span>
                             </button>
@@ -690,7 +963,7 @@ const App = () => {
                                          </div>
                                     )}
                                     {filteredMedia.map(media => (
-                                        <div key={`${media.id}-${selectedCollection?.id || 'list'}`} onClick={() => playTrack(media)} className={`group flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all border border-transparent ${currentTrack?.id === media.id ? 'bg-brand-accent/10 border-brand-accent/20' : 'bg-app-surface hover:bg-app-card hover:shadow-md border-app-border'}`}>
+                                        <div key={`${media.id}-${selectedCollection?.id || 'list'}`} onClick={() => playTrack(media)} className={`group flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all border border-transparent ${currentTrack?.id === media.id ? 'bg-brand-accent/10 border-brand-accent/20' : 'bg-app-surface hover:bg-app-card hover:shadow-md border-app-border'} ${!isOnline && !media.id.startsWith('local-') && !media.mediaUrl.startsWith('blob:') ? 'opacity-50 grayscale' : ''}`}>
                                             <div className="relative w-12 h-12 flex-shrink-0">
                                                 {media.type === MediaType.VIDEO ? (
                                                     <div className="w-full h-full rounded-lg bg-black/80 flex items-center justify-center text-white overflow-hidden">
@@ -715,7 +988,10 @@ const App = () => {
                                             
                                             <div className="flex-1 min-w-0">
                                                 <h3 className={`font-bold text-sm md:text-base truncate ${currentTrack?.id === media.id ? 'text-brand-accent' : 'text-app-text'}`}>{media.title}</h3>
-                                                <p className="text-xs md:text-sm text-app-subtext truncate flex items-center gap-2">{media.artist} {media.type === MediaType.VIDEO && <span className="bg-app-card px-1.5 py-0.5 rounded text-[10px] border border-app-border">VIDEO</span>}</p>
+                                                <p className="text-xs md:text-sm text-app-subtext truncate flex items-center gap-2">
+                                                    {media.artist} 
+                                                    {media.type === MediaType.VIDEO && <span className="bg-app-card px-1.5 py-0.5 rounded text-[10px] border border-app-border">VIDEO</span>}
+                                                </p>
                                             </div>
                                             
                                             <div className="flex items-center gap-1 sm:gap-2">
@@ -859,5 +1135,18 @@ const App = () => {
     </div>
   );
 };
+
+// Root App that renders Providers
+const App = () => {
+    return (
+        <React.StrictMode>
+            <ErrorBoundary>
+                <ToastProvider>
+                    <AppContent />
+                </ToastProvider>
+            </ErrorBoundary>
+        </React.StrictMode>
+    )
+}
 
 export default App;

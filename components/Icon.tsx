@@ -6,7 +6,7 @@ import {
   Volume2, VolumeX, Maximize2, Minimize2, Search,
   Wand2, MessageSquare, PlusCircle, Music, Activity,
   Sun, Moon, Sliders, Timer, Trash2, ListPlus, FolderPlus, MoreVertical, X,
-  Gauge, Languages, Disc, Users
+  Gauge, Languages, Disc, Users, Info
 } from 'lucide-react';
 
 export const Icons = {
@@ -15,7 +15,7 @@ export const Icons = {
   Volume2, VolumeX, Maximize2, Minimize2, Search,
   Wand2, MessageSquare, PlusCircle, Music, Activity,
   Sun, Moon, Sliders, Timer, Trash2, ListPlus, FolderPlus, MoreVertical, X,
-  Gauge, Languages, Disc, Users
+  Gauge, Languages, Disc, Users, Info
 };
 
 export type IconName = keyof typeof Icons;
