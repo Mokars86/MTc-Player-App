@@ -2,7 +2,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { MediaItem } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Helper to check if API key is present
 export const hasApiKey = () => !!process.env.API_KEY;

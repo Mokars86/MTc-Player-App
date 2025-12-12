@@ -116,7 +116,7 @@ const AppContent = () => {
   // Initialized empty, loaded via API
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   
-  const [libraryTab, setLibraryTab] = useState<'ALL' | 'FAVORITES' | 'PLAYLISTS' | 'ALBUMS' | 'ARTISTS' | 'LOCAL'>('ALL');
+  const [libraryTab, setLibraryTab] = useState<'ALL' | 'AUDIO' | 'VIDEO' | 'FAVORITES' | 'PLAYLISTS' | 'ALBUMS' | 'ARTISTS' | 'LOCAL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Playlist & Collection State
@@ -353,6 +353,10 @@ const AppContent = () => {
           media = media.filter(m => favorites.has(m.id));
         } else if (libraryTab === 'LOCAL') {
           media = localLibrary;
+        } else if (libraryTab === 'AUDIO') {
+          media = media.filter(m => m.type === MediaType.MUSIC || m.type === MediaType.PODCAST || m.type === MediaType.AUDIOBOOK);
+        } else if (libraryTab === 'VIDEO') {
+          media = media.filter(m => m.type === MediaType.VIDEO);
         } else if (libraryTab === 'PLAYLISTS' || libraryTab === 'ALBUMS' || libraryTab === 'ARTISTS') {
            media = [];
         }
@@ -392,13 +396,35 @@ const AppContent = () => {
 
     try {
       audioRef.current.pause(); 
+      // Ensure crossOrigin is set for Visualizer (Web Audio API requirement)
+      audioRef.current.crossOrigin = "anonymous";
       audioRef.current.src = track.mediaUrl;
       audioRef.current.load();
-      const playPromise = audioRef.current.play();
-      if (playPromise !== undefined) {
-          await playPromise;
+      
+      try {
+          const playPromise = audioRef.current.play();
+          if (playPromise !== undefined) {
+              await playPromise;
+          }
+          setIsPlaying(true);
+      } catch (playError: any) {
+          // Robust Fallback: If CORS or Source error, try without CORS (Visualizer will be disabled)
+          if (playError.name === 'NotSupportedError' || playError.message.includes('supported source')) {
+              console.warn("Playback error detected (CORS/Source). Retrying without CORS headers.");
+              
+              // Reset source and CORS
+              audioRef.current.pause();
+              audioRef.current.crossOrigin = null; // Remove CORS requirement
+              audioRef.current.src = track.mediaUrl;
+              audioRef.current.load();
+              
+              await audioRef.current.play();
+              setIsPlaying(true);
+              showToast("Playing (Visualizer disabled due to source restrictions)", "info");
+          } else {
+              throw playError;
+          }
       }
-      setIsPlaying(true);
     } catch (error: any) {
       if (error.name === 'AbortError') {
           // Expected when switching tracks quickly
@@ -487,10 +513,10 @@ const AppContent = () => {
     const onEnded = () => { handleNextRef.current(true); };
     const onError = (e: Event) => {
         const target = e.target as HTMLAudioElement;
-        if (target.error && target.error.code !== target.error.MEDIA_ERR_ABORTED) {
-             // Suppress errors if we know we are offline
-             if (!navigator.onLine) return;
-             showToast("Playback Error: Code " + target.error.code, "error");
+        // Suppress errors if we know we are offline or if it's an AbortError
+        if (target.error && target.error.code !== target.error.MEDIA_ERR_ABORTED && navigator.onLine) {
+             // We handle basic loading errors in playTrack now, but valid stream errors might still bubble here
+             console.warn("Audio Element Error:", target.error);
         }
     };
 
@@ -506,7 +532,7 @@ const AppContent = () => {
       audio.removeEventListener('error', onError);
       audio.pause();
     };
-  }, [showToast]); 
+  }, []); 
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
@@ -685,10 +711,7 @@ const AppContent = () => {
     } else {
       if (currentTrack.type !== MediaType.VIDEO && audioRef.current) {
         audioRef.current.play().catch(e => {
-            if (e.name !== 'AbortError') {
-                console.error("Playback failed", e);
-                showToast("Playback failed", "error");
-            }
+            // Error handling in listener or logic, but standard play call usually works if loaded
         });
       }
       setIsPlaying(true);
@@ -868,7 +891,7 @@ const AppContent = () => {
                             </div>
 
                             <div className="flex gap-2 mb-6 overflow-x-auto hide-scrollbar">
-                                {(['ALL', 'FAVORITES', 'PLAYLISTS', 'ALBUMS', 'ARTISTS', 'LOCAL'] as const).map(tab => (
+                                {(['ALL', 'AUDIO', 'VIDEO', 'FAVORITES', 'PLAYLISTS', 'ALBUMS', 'ARTISTS', 'LOCAL'] as const).map(tab => (
                                     <button key={tab} onClick={() => setLibraryTab(tab)} className={`px-4 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap ${libraryTab === tab ? 'bg-brand-accent text-white shadow-md' : 'bg-app-surface text-app-subtext hover:bg-app-card hover:text-app-text border border-app-border'}`}>
                                         {tab === 'ALL' ? 'All' : tab.charAt(0) + tab.slice(1).toLowerCase()}
                                     </button>
@@ -1023,6 +1046,8 @@ const AppContent = () => {
                                     {libraryTab === 'FAVORITES' && <p className="text-sm mt-2">Tap the heart icon on any song to add it here.</p>}
                                     {libraryTab === 'LOCAL' && <p className="text-sm mt-2">Tap "Import" to add files from your device.</p>}
                                     {selectedCollection?.type === 'PLAYLIST' && <p className="text-sm mt-2">This playlist is empty. Add songs from your library.</p>}
+                                    {libraryTab === 'AUDIO' && <p className="text-sm mt-2">Add some music to your library.</p>}
+                                    {libraryTab === 'VIDEO' && <p className="text-sm mt-2">Add some videos to your library.</p>}
                                 </div>
                             )}
                         </div>

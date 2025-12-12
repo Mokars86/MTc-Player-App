@@ -9,8 +9,17 @@ interface AudioEngineProps {
   eqSettings: EqSettings;
 }
 
-// Global cache for MediaElementSourceNodes to prevent "already connected" errors
+// Global Singletons to ensure context consistency across re-renders
+let globalCtx: AudioContext | null = null;
 const sourceCache = new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>();
+
+const getGlobalContext = () => {
+    if (!globalCtx) {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        globalCtx = new AudioContextClass();
+    }
+    return globalCtx;
+};
 
 const AudioEngine: React.FC<AudioEngineProps> = ({ 
   audioElement, 
@@ -21,83 +30,99 @@ const AudioEngine: React.FC<AudioEngineProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number>(0);
   
-  // Web Audio Graph Refs
-  const audioContextRef = useRef<AudioContext | null>(null);
+  // Refs for nodes specific to this component instance
   const analyserRef = useRef<AnalyserNode | null>(null);
   const filtersRef = useRef<BiquadFilterNode[]>([]);
-  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
 
   // Initialize Audio Graph
   useEffect(() => {
     if (!audioElement) return;
 
-    if (!audioContextRef.current) {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioContextClass();
-      audioContextRef.current = ctx;
-      
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyserRef.current = analyser;
+    const ctx = getGlobalContext();
+    
+    // Create Analyser
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    analyserRef.current = analyser;
 
-      // Create EQ Filters (60, 250, 1000, 4000, 16000 Hz)
-      const freqs = [60, 250, 1000, 4000, 16000];
-      const filters = freqs.map((f, i) => {
-        const filter = ctx.createBiquadFilter();
-        if (i === 0) filter.type = 'lowshelf';
-        else if (i === freqs.length - 1) filter.type = 'highshelf';
-        else filter.type = 'peaking';
-        filter.frequency.value = f;
-        return filter;
-      });
-      filtersRef.current = filters;
+    // Create EQ Filters (60, 250, 1000, 4000, 16000 Hz)
+    const freqs = [60, 250, 1000, 4000, 16000];
+    const filters = freqs.map((f, i) => {
+      const filter = ctx.createBiquadFilter();
+      if (i === 0) filter.type = 'lowshelf';
+      else if (i === freqs.length - 1) filter.type = 'highshelf';
+      else filter.type = 'peaking';
+      filter.frequency.value = f;
+      return filter;
+    });
+    filtersRef.current = filters;
 
-      // Connect Source
-      let source: MediaElementAudioSourceNode;
-      if (sourceCache.has(audioElement)) {
-        source = sourceCache.get(audioElement)!;
-      } else {
-        try {
-           source = ctx.createMediaElementSource(audioElement);
-           sourceCache.set(audioElement, source);
-        } catch (e) {
-           console.warn("Could not create MediaElementSource", e);
-           // Fallback if cached connection failed but map missed it? 
-           // Should ideally not happen with WeakMap logic.
-           return; 
-        }
+    // Get or Create Source
+    let source: MediaElementAudioSourceNode;
+    if (sourceCache.has(audioElement)) {
+      source = sourceCache.get(audioElement)!;
+    } else {
+      try {
+         source = ctx.createMediaElementSource(audioElement);
+         sourceCache.set(audioElement, source);
+      } catch (e) {
+         console.warn("Could not create MediaElementSource", e);
+         return; 
       }
-      sourceRef.current = source;
-
-      // Connect Graph: Source -> F1 -> F2 -> F3 -> F4 -> F5 -> Analyser -> Dest
-      source.connect(filters[0]);
-      for (let i = 0; i < filters.length - 1; i++) {
-        filters[i].connect(filters[i + 1]);
-      }
-      filters[filters.length - 1].connect(analyser);
-      analyser.connect(ctx.destination);
     }
 
-    // Cleanup logic: typically we don't close context to avoid breaking other audio,
-    // but here the graph is specific to this player view.
-    // However, if we unmount, we should ideally disconnect to allow garbage collection
-    // but keeping 'source' connected to 'destination' is vital if music keeps playing.
-    // Logic: If isPlaying, we want music to continue even if UI closes (miniplayer).
-    // But AudioEngine unmounts when PlayerView unmounts.
-    // For a robust app, AudioEngine should be in App.tsx. 
-    // Given the constraints, we will just handle EQ updates here.
-    // If the component unmounts, the nodes persist in memory if connected to destination.
-    // This is actually "okay" for this architecture.
+    // Connect Graph: Source -> F1 -> ... -> F5 -> Analyser -> Dest
+    try {
+        // Critical: Disconnect everything first to avoid double-routing (fan-out)
+        // or mixing old graph with new graph if the component remounted.
+        source.disconnect();
+        
+        source.connect(filters[0]);
+        
+        for (let i = 0; i < filters.length - 1; i++) {
+            filters[i].connect(filters[i + 1]);
+        }
+        filters[filters.length - 1].connect(analyser);
+        analyser.connect(ctx.destination);
+    } catch (e) {
+        console.error("Audio Graph Connection Error:", e);
+    }
+
+    // Apply initial EQ settings
+    const gains = eqSettings.gains;
+    filters[0].gain.value = gains[60];
+    filters[1].gain.value = gains[250];
+    filters[2].gain.value = gains[1000];
+    filters[3].gain.value = gains[4000];
+    filters[4].gain.value = gains[16000];
+
+    // Cleanup on unmount
+    return () => {
+        try {
+            // Disconnect source from the EQ/Analyser graph
+            source.disconnect();
+            
+            filters.forEach(f => f.disconnect());
+            analyser.disconnect();
+            
+            // Reconnect source directly to destination so audio continues playing
+            // in the background without the visualizer/EQ overhead.
+            source.connect(ctx.destination);
+        } catch (e) {
+            // Ignore disconnect errors
+        }
+    };
 
   }, [audioElement]);
 
-  // Update EQ Gains
+  // Update EQ Gains Dynamically
   useEffect(() => {
-    if (filtersRef.current.length === 5 && audioContextRef.current) {
+    if (filtersRef.current.length === 5) {
+        const ctx = getGlobalContext();
         const gains = eqSettings.gains;
         const filterNodes = filtersRef.current;
         
-        const now = audioContextRef.current.currentTime;
+        const now = ctx.currentTime;
         // Smooth transition
         filterNodes[0].gain.setTargetAtTime(gains[60], now, 0.1);
         filterNodes[1].gain.setTargetAtTime(gains[250], now, 0.1);
@@ -109,19 +134,21 @@ const AudioEngine: React.FC<AudioEngineProps> = ({
 
   // Visualizer Loop
   useEffect(() => {
-    if (!canvasRef.current || !audioContextRef.current) return;
+    if (!canvasRef.current || !analyserRef.current) return;
+    
+    const ctx = getGlobalContext();
 
     // Resume context if suspended (browser policy)
-    if (isPlaying && audioContextRef.current.state === 'suspended') {
-        audioContextRef.current.resume();
+    if (isPlaying && ctx.state === 'suspended') {
+        ctx.resume();
     }
 
     const renderFrame = () => {
       if (!canvasRef.current || !analyserRef.current) return;
 
       const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      const context2D = canvas.getContext('2d');
+      if (!context2D) return;
 
       const bufferLength = analyserRef.current.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
@@ -130,7 +157,7 @@ const AudioEngine: React.FC<AudioEngineProps> = ({
       const width = canvas.width;
       const height = canvas.height;
 
-      ctx.clearRect(0, 0, width, height);
+      context2D.clearRect(0, 0, width, height);
 
       const barWidth = (width / bufferLength) * 2.5;
       let barHeight;
@@ -139,19 +166,19 @@ const AudioEngine: React.FC<AudioEngineProps> = ({
       for (let i = 0; i < bufferLength; i++) {
         barHeight = (dataArray[i] / 255) * height; // Scale to canvas height
 
-        const gradient = ctx.createLinearGradient(0, height, 0, height - barHeight);
+        const gradient = context2D.createLinearGradient(0, height, 0, height - barHeight);
         gradient.addColorStop(0, color);
         gradient.addColorStop(1, 'rgba(255,255,255,0.4)');
 
-        ctx.fillStyle = gradient;
+        context2D.fillStyle = gradient;
         
-        ctx.beginPath();
-        if (ctx.roundRect) {
-            ctx.roundRect(x, height - barHeight, barWidth, barHeight, 5);
+        context2D.beginPath();
+        if (context2D.roundRect) {
+            context2D.roundRect(x, height - barHeight, barWidth, barHeight, 5);
         } else {
-            ctx.rect(x, height - barHeight, barWidth, barHeight);
+            context2D.rect(x, height - barHeight, barWidth, barHeight);
         }
-        ctx.fill();
+        context2D.fill();
 
         x += barWidth + 2;
       }

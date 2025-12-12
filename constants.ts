@@ -1,3 +1,4 @@
+
 import { MediaItem, MediaType } from './types';
 
 export const DEMO_MEDIA: MediaItem[] = [
@@ -53,12 +54,13 @@ export const DEMO_MEDIA: MediaItem[] = [
   },
   {
     id: '4',
-    title: 'Jazz In Paris',
-    artist: 'Media Right Productions',
-    coverUrl: 'https://picsum.photos/400/400?random=4',
-    mediaUrl: 'https://storage.googleapis.com/automotive-media/Jazz_In_Paris.mp3',
+    title: 'Down',
+    artist: 'Marian Call',
+    album: 'Elephants Dream',
+    coverUrl: 'https://storage.googleapis.com/media-session/elephants-dream/artwork-512.jpg',
+    mediaUrl: 'https://storage.googleapis.com/media-session/elephants-dream/down.mp3',
     type: MediaType.MUSIC,
-    duration: 245,
+    duration: 212,
     moods: ['Workout', 'Energy']
   }
 ];
