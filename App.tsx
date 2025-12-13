@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { AppView, MediaItem, MediaType, PlayerState, Theme, RepeatMode, GestureType, GestureAction, GestureSettings, EqSettings, SleepTimer, Playlist } from './types';
 import { DEMO_MEDIA } from './constants';
@@ -102,6 +101,10 @@ const AppContent = () => {
   // User Profile State
   const [userName, setUserName] = useState('Guest User');
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [isSupporter, setIsSupporter] = useState(false);
+
+  // Donation State
+  const [showDonateModal, setShowDonateModal] = useState(false);
 
   // Player Logic State
   const [shuffleOn, setShuffleOn] = useState(false);
@@ -308,6 +311,76 @@ const AppContent = () => {
           });
           showToast(`Sleep timer set for ${minutes} minutes`, "success");
       }
+  };
+
+  const handleDonate = (amount: string, label: string) => {
+      showToast("Redirecting to secure payment...", "info");
+      // Simulate API call
+      setTimeout(() => {
+          setShowDonateModal(false);
+          setIsSupporter(true);
+          showToast(`Thank you! Your $${amount} contribution keeps us alive.`, "success");
+      }, 1500);
+  };
+
+  const handleShareApp = async () => {
+    const url = window.location.href;
+    const shareData = {
+        title: 'MTc Player',
+        text: 'Check out MTc Player - The AI-enhanced sonic intelligence experience!',
+        url: url
+    };
+
+    // 1. Try Native Share
+    if (navigator.share) {
+        try {
+            await navigator.share(shareData);
+            showToast("Shared successfully!", "success");
+            return;
+        } catch (err: any) {
+            // If user cancelled, stop here
+            if (err.name === 'AbortError') return;
+            console.warn('Share API failed, falling back to clipboard:', err);
+        }
+    }
+
+    // 2. Fallback to Clipboard API
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+            await navigator.clipboard.writeText(url);
+            showToast("Link copied to clipboard!", "success");
+            return;
+        } catch (err) {
+             console.warn('Clipboard API failed, falling back to legacy copy:', err);
+        }
+    }
+
+    // 3. Fallback to legacy execCommand
+    try {
+        const textArea = document.createElement("textarea");
+        textArea.value = url;
+        
+        // Ensure it's not visible but part of DOM
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        textArea.style.top = "0";
+        document.body.appendChild(textArea);
+        
+        textArea.focus();
+        textArea.select();
+        
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        if (successful) {
+            showToast("Link copied to clipboard!", "success");
+        } else {
+             showToast("Unable to share link", "error");
+        }
+    } catch (err) {
+        console.error("All share methods failed", err);
+        showToast("Unable to share link automatically", "error");
+    }
   };
 
   const allMedia = useMemo(() => [...localLibrary, ...DEMO_MEDIA], [localLibrary]);
@@ -764,10 +837,18 @@ const AppContent = () => {
                     <button onClick={() => { const n = prompt("Enter new name:", userName); if(n) setUserName(n); }} className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                         <Icons.Settings className="w-6 h-6 text-white" />
                     </button>
+                    {isSupporter && (
+                        <div className="absolute -bottom-1 -right-1 bg-yellow-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full border border-white">
+                            PRO
+                        </div>
+                    )}
                 </div>
                 <div>
-                    <h2 className="text-2xl font-bold text-app-text">{userName}</h2>
-                    <p className="text-app-subtext">Free Tier Account</p>
+                    <h2 className="text-2xl font-bold text-app-text flex items-center justify-center gap-2">
+                        {userName}
+                        {isSupporter && <Icons.Star className="w-4 h-4 fill-yellow-500 text-yellow-500" />}
+                    </h2>
+                    <p className="text-app-subtext">{isSupporter ? 'Supporter Tier' : 'Free Tier Account'}</p>
                 </div>
                 
                 <div className="grid grid-cols-3 gap-4 w-full mt-4">
@@ -785,11 +866,66 @@ const AppContent = () => {
                     </div>
                 </div>
 
-                <div className="w-full mt-2">
-                    <button onClick={() => { setShowProfileModal(false); setCurrentView(AppView.SETTINGS); }} className="w-full py-3 rounded-xl bg-app-card hover:bg-app-border transition-colors text-app-text font-semibold flex items-center justify-center gap-2">
+                {!isSupporter && (
+                     <div className="w-full mt-2">
+                         <button onClick={() => { setShowProfileModal(false); setShowDonateModal(true); }} className="w-full py-3 rounded-xl bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 transition-all text-white font-semibold flex items-center justify-center gap-2 shadow-lg">
+                             <Icons.Heart className="w-5 h-5 fill-white"/> Become a Supporter
+                         </button>
+                     </div>
+                )}
+
+                <div className="w-full mt-2 grid grid-cols-2 gap-3">
+                    <button onClick={handleShareApp} className="py-3 rounded-xl bg-app-card hover:bg-app-border transition-colors text-app-text font-semibold flex items-center justify-center gap-2">
+                        <Icons.Share2 className="w-5 h-5"/> Share App
+                    </button>
+                    <button onClick={() => { setShowProfileModal(false); setCurrentView(AppView.SETTINGS); }} className="py-3 rounded-xl bg-app-card hover:bg-app-border transition-colors text-app-text font-semibold flex items-center justify-center gap-2">
                         <Icons.Settings className="w-5 h-5"/> Settings
                     </button>
                 </div>
+            </div>
+        </Modal>
+
+        {/* DONATE MODAL */}
+        <Modal
+            isOpen={showDonateModal}
+            onClose={() => setShowDonateModal(false)}
+            title="Support Development"
+        >
+            <div className="text-center space-y-6">
+                <div className="mx-auto w-16 h-16 rounded-full bg-brand-accent/10 flex items-center justify-center mb-4">
+                    <Icons.Gift className="w-8 h-8 text-brand-accent" />
+                </div>
+                
+                <p className="text-app-subtext">
+                    MTc Player is built with passion. Your contribution helps cover AI server costs and fuels future features like seamless cloud storage and multi-device sync.
+                </p>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <button onClick={() => handleDonate("3", "Coffee")} className="group p-4 bg-app-bg border border-app-border rounded-xl hover:border-brand-accent hover:bg-brand-accent/5 transition-all flex flex-col items-center gap-2">
+                        <Icons.Coffee className="w-6 h-6 text-app-subtext group-hover:text-brand-accent" />
+                        <span className="font-bold text-app-text">$3.00</span>
+                        <span className="text-xs text-app-subtext">Coffee Boost</span>
+                    </button>
+                    <button onClick={() => handleDonate("10", "Disc")} className="group p-4 bg-app-bg border border-app-border rounded-xl hover:border-brand-accent hover:bg-brand-accent/5 transition-all flex flex-col items-center gap-2">
+                        <Icons.Disc className="w-6 h-6 text-app-subtext group-hover:text-brand-accent" />
+                        <span className="font-bold text-app-text">$10.00</span>
+                        <span className="text-xs text-app-subtext">Vinyl Lover</span>
+                    </button>
+                    <button onClick={() => handleDonate("25", "Heart")} className="group p-4 bg-app-bg border border-app-border rounded-xl hover:border-brand-accent hover:bg-brand-accent/5 transition-all flex flex-col items-center gap-2">
+                        <Icons.Heart className="w-6 h-6 text-app-subtext group-hover:text-brand-accent" />
+                        <span className="font-bold text-app-text">$25.00</span>
+                        <span className="text-xs text-app-subtext">Super Fan</span>
+                    </button>
+                    <button onClick={() => handleDonate("50", "Star")} className="group p-4 bg-app-bg border border-app-border rounded-xl hover:border-brand-accent hover:bg-brand-accent/5 transition-all flex flex-col items-center gap-2">
+                        <Icons.Star className="w-6 h-6 text-app-subtext group-hover:text-brand-accent" />
+                        <span className="font-bold text-app-text">$50.00</span>
+                        <span className="text-xs text-app-subtext">Producer</span>
+                    </button>
+                </div>
+                
+                <p className="text-xs text-app-subtext italic mt-4">
+                    Secure payment processed via simulated Stripe/PayPal gateway.
+                </p>
             </div>
         </Modal>
 
@@ -1061,6 +1197,22 @@ const AppContent = () => {
                 <div className="p-6 animate-slide-up pb-24">
                     <h1 className="text-3xl font-bold mb-6 text-app-text">Settings</h1>
                     <div className="space-y-6">
+                        <section className="glass-panel p-4 rounded-xl space-y-4">
+                            <h2 className="text-sm text-app-subtext uppercase font-bold tracking-wider mb-2">Support & Feedback</h2>
+                            <div className="bg-gradient-to-r from-brand-dark/50 to-brand-accent/10 rounded-xl p-4 flex flex-col items-center text-center gap-3 border border-brand-accent/20">
+                                <h3 className="font-bold text-lg text-app-text">Love the app?</h3>
+                                <p className="text-sm text-app-subtext">Help us keep the music playing and the AI thinking.</p>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setShowDonateModal(true)} className="px-6 py-2 bg-brand-accent hover:bg-brand-light text-white rounded-full font-bold shadow-lg transition-transform active:scale-95 flex items-center gap-2">
+                                        <Icons.Gift className="w-4 h-4"/> Donate
+                                    </button>
+                                    <button onClick={handleShareApp} className="px-6 py-2 bg-app-card hover:bg-app-border text-app-text rounded-full font-bold shadow-lg transition-transform active:scale-95 flex items-center gap-2 border border-app-border">
+                                        <Icons.Share2 className="w-4 h-4"/> Share
+                                    </button>
+                                </div>
+                            </div>
+                        </section>
+
                         <section className="glass-panel p-4 rounded-xl space-y-4">
                             <h2 className="text-sm text-app-subtext uppercase font-bold tracking-wider mb-2">General</h2>
                             <div className="flex justify-between items-center cursor-pointer hover:bg-app-surface/50 p-2 rounded-lg transition-colors" onClick={toggleTheme}>
